@@ -9,7 +9,7 @@ import urllib.parse as urlparse
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-logging.basicConfig(filename='dspace_rest_client.log',
+logging.basicConfig(filename='dspace_rest_dp.log',
                     level=logging.INFO,
                     # format='%(asctime)s | %(message)s',
                     datefmt='%m/%d/%Y %I:%M:%S %p')
@@ -179,6 +179,33 @@ class Community(AbstractDSpaceObject):
 
     def get_collections(self):
         return self._get('communities/{}/collections'.format(self.uuid), Collection)
+
+    def create_collection(self, name):
+        # POST / communities / {communityId} / collections - Create new collections in community.You must post Collection.
+
+        collection = {  # Structure necessary to create DSpace collection
+            "name": name,
+            "provenance": "Testing"
+        }
+
+        logging.info("Collection: %s", collection)
+
+        collection_url = self.ds_client.base_url + '/communities/' + self.uuid + '/collections'
+        logging.info(collection_url)
+
+        # Create item
+        try:
+            response = requests.post(collection_url,
+                                     headers=self.ds_client.headers,
+                                     cookies={'JSESSIONID': self.ds_client.session},
+                                     data=json.dumps(collection),
+                                     verify=self.ds_client.verify_ssl)
+        except RequestException:
+            logging.info('Could not create DSpace collection: {}'.format(collection_url))
+
+        logging.info(response)
+        logging.info(response.json())
+        return response.json()
 
 
 class Item(AbstractDSpaceObject):
@@ -363,7 +390,6 @@ class DSpaceRestClient:
 
         global dspace_rest_client
         dspace_rest_client = self
-
 
     def _login(self):
         """
