@@ -15,10 +15,13 @@ import urllib.parse as urlparse
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-logging.basicConfig(filename='dspace_rest_client.log',
+logging.basicConfig(filename='dspace_rest_demo.log',
                     level=logging.INFO,
-                    #format='%(asctime)s | %(message)s',
+                    # format='%(asctime)s | %(message)s',
                     datefmt='%m/%d/%Y %I:%M:%S %p')
+
+
+dspace_rest_client = None
 
 
 class DSpaceRestClientException(Exception):
@@ -33,15 +36,19 @@ class LogoutException(DSpaceRestClientException):
     pass
 
 
+class CreateItemException(DSpaceRestClientException):
+    pass
+
+
 class UpdateItemException(DSpaceRestClientException):
     pass
 
 
 class AbstractDSpaceObject:
     """ Empty DSpace blueprint object"""
-    def __init__(self):
+    def __init__(self, name=None):
         self.uuid = None
-        self.name = None
+        self.name = name
         self.handle = None
         self.type = None
         self.link = None
@@ -57,37 +64,31 @@ class Metadata:
         self.language = lang
 
 
+class ResourcePolicy:
+    def __str__(self):
+        return str(['{}: {}'.format(attr, value) for attr, value in self.__dict__.items()])
+
+    def __init__(self):
+        self.action = None
+        self.epersonId = None
+        self.groupId = None
+        self.resourceId = None
+        self.resourceType = None
+        self.rpDescription = None
+        self.rpName = None
+        self.rpType = None
+        self.startDate = None
+        self.endDate = None
+
+
 class Bitstream(AbstractDSpaceObject):
     """
-    Bitstreams are files. They have a filename, size (in bytes), and a file format. Typically in DSpace, the Bitstream
-    will the "full text" article, or some other media. Some files are the actual file that was uploaded (tagged with
-    bundleName:ORIGINAL), others are DSpace-generated files that are derivatives or renditions, such as
-    text-extraction, or thumbnails. You can download files/bitstreams. DSpace doesn't really limit the type of files
-    that it takes in, so this could be PDF, JPG, audio, video, zip, or other. Also, the logo for a Collection or a
-    Community, is also a Bitstream.
-
-    GET /bitstreams - Return all bitstreams in DSpace.
-    GET /bitstreams/{bitstream id} - Return bitstream.
-    GET /bitstreams/{bitstream id}/policy - Return bitstream policies.
-    GET /bitstreams/{bitstream id}/retrieve - Return data of bitstream.
-    POST /bitstreams/{bitstream id}/policy - Add policy to item. You must post a ResourcePolicy
-    PUT /bitstreams/{bitstream id}/data - Update data/file of bitstream. You must put the data
-    PUT /bitstreams/{bitstream id} - Update metadata of bitstream. You must put a Bitstream, does not alter the file/data
-    DELETE /bitstreams/{bitstream id} - Delete bitstream from DSpace.
-    DELETE /bitstreams/{bitstream id}/policy/{policy_id} - Delete bitstream policy.
-
-    You can access the parent object of a Bitstream (normally an Item, but possibly a Collection or Community when it
-    is its logo) through: /bitstreams/:bitstreamID?expand=parent
-
-    As the documentation may state "You must post a ResourcePolicy" or some other object type, this means that there
-    is a structure of data types, that your XML or JSON must be of type, when it is posted in the body.
     """
     def __str__(self):
         return str(['{}: {}'.format(attr, value) for attr, value in self.__dict__.items()])
 
-    def __init__(self, ds_client, item_json):
+    def __init__(self, item_json):
         super(Bitstream, self).__init__()
-        self.ds_client = ds_client
 
         for k, v in item_json.items():
             self.__setattr__(k, v)
@@ -95,168 +96,147 @@ class Bitstream(AbstractDSpaceObject):
 
 class Collection(AbstractDSpaceObject):
     """
-    GET /collections - Return all collections of DSpace in array.
-    GET /collections/{collectionId} - Return collection with id.
-    GET /collections/{collectionId}/items - Return all items of collection.
-    POST /collections/{collectionId}/items - Create posted item in collection. You must post an Item
-    POST /collections/find-collection - Find collection by passed name.
-    PUT /collections/{collectionId} - Update collection. You must put Collection.
-    DELETE /collections/{collectionId} - Delete collection from DSpace.
-    DELETE /collections/{collectionId}/items/{itemId} - Delete item in collection.
-
-    {"id":730,
-    "name":"Annual Reports Collection",
-    "handle":"10766/10214",
-    "type":"collection",
-    "link":"/rest/collections/730",
-    "expand":["parentCommunityList","parentCommunity","items","license","logo","all"],
-    "logo":null,
-    "parentCommunity":null,
-    "parentCommunityList":[],
-    "items":[],
-    "license":null,
-    "copyrightText":"",
-    "introductoryText":"",
-    "shortDescription":"",
-    "sidebarText":"",
-    "numberItems":3}
     """
 
     def __str__(self):
         return str(['{}: {}'.format(attr, value) for attr, value in self.__dict__.items()])
 
-    def __init__(self, ds_client, item_json):
+    def __init__(self, item_json):
         super(Collection, self).__init__()
-        self.ds_client = ds_client
 
         for k, v in item_json.items():
             self.__setattr__(k, v)
+
+    def get_items(self):
+        return dspace_rest_client._get('collections/{}/items'.format(self.uuid), Item)
+
+    def create_item(self, item):
+        return Item(item_json=item, collection=self.uuid)
 
 
 class Community(AbstractDSpaceObject):
     """
-    GET /communities - Returns array of all communities in DSpace.
-    GET /communities/top-communities - Returns array of all top communities in DSpace.
-    GET /communities/{communityId} - Returns community.
-    GET /communities/{communityId}/collections - Returns array of collections of community.
-    GET /communities/{communityId}/communities - Returns array of subcommunities of community.
-    POST /communities - Create new community at top level. You must post community.
-    POST /communities/{communityId}/collections - Create new collections in community. You must post Collection.
-    POST /communities/{communityId}/communities - Create new subcommunity in community. You must post Community.
-    PUT /communities/{communityId} - Update community. You must put Community
-    DELETE /communities/{communityId} - Delete community.
-    DELETE /communities/{communityId}/collections/{collectionId} - Delete collection in community.
-    DELETE /communities/{communityId}/communities/{communityId2} - Delete subcommunity in community.
-
-    {"id":456,
-    "name":"Reports Community",
-    "handle":"10766/10213",
-    "type":"community",
-    "link":"/rest/communities/456",
-    "expand":["parentCommunity","collections","subCommunities","logo","all"],
-    "logo":null,
-    "parentCommunity":null,
-    "copyrightText":"",
-    "introductoryText":"",
-    "shortDescription":"Collection contains materials pertaining to the Able Family",
-    "sidebarText":"",
-    "countItems":3,
-    "subcommunities":[],
-    "collections":[]}
     """
 
     def __str__(self):
-        return str(['{}: {}'.format(attr, value) for attr, value in self.__dict__.items()])
+        return self.uuid  # str(['{}: {}'.format(attr, value) for attr, value in self.__dict__.items()])
 
-    def __init__(self, ds_client, item_json):
+    def __init__(self, object_json=None, name=None, community=None):
         super(Community, self).__init__()
-        self.ds_client = ds_client
 
-        for k, v in item_json.items():
+        if name:  # If a name is supplied we are creating a community
+            url = '/communities'
+            if community:  # If a community is supplied, it is the parent
+                url = url + '/{}/communities'.format(community)
+
+            json_obj = {  # Structure necessary to create DSpace item
+                "type": "community",
+                "name": name
+                # "metadata": [{'key': 'dc.title', 'value': name, 'language': 'en_GB'}]
+            }
+
+            # Create community
+            try:
+                response = dspace_rest_client._request_post(url=url, json_obj=json_obj)
+            except RequestException:
+                logging.error('Could not create community "{}". Status code: {}'.format(url, response.status_code))
+
+            if response.status_code == 200:
+                object_json = response.json()
+                logging.info("Created community named: {}, with uuid: {}.".format(object_json['name'], object_json['uuid']))
+            else:
+                raise DSpaceRestClientException('Could not create community "{}". Status code: {}'.format(url, response.status_code))
+
+        for k, v in object_json.items():
             self.__setattr__(k, v)
 
         self.countItems = int(self.countItems)
 
-    def _get(self, rest_url, ds_obj, offset=0, limit=100, results=[]):
-        """
-        Get *
-        :param offset:
-        :param results:
-        :param limit:
-        :return:
-        """
-        response = None
-        try:
-            get_url = '{}/{}?offset={}&limit={}'.format(self.ds_client.base_url, rest_url, offset, limit)
-            print(get_url)
-            response = self.ds_client.request_get(get_url)
-        except RequestException:
-            logging.error('Could not get "{}". Status code: {}'.format(rest_url, response.status_code))
-
-        if response.status_code == 200:
-            results = results + [ds_obj(self.ds_client, obj) for obj in response.json()]
-
-            if offset < limit and len(response.json()) == limit:
-                return self._get(rest_url, ds_obj, offset + limit, limit, results)
-            else:
-                return results
-        else:
-            return 'Could not get "{}". Status code: {}. \n{}'.format(rest_url, response.status_code, response.content)
+    def _create(self):
+        pass
 
     def get_collections(self):
-        return self._get('communities/{}/collections'.format(self.uuid), Collection)
+        return dspace_rest_client._get('communities/{}/collections'.format(self.uuid), Collection)
+
+    def create_collection(self, name):
+        # POST / communities / {communityId} / collections - Create new collections in community.You must post Collection.
+
+        collection = {  # Structure necessary to create DSpace collection
+            "name": name,
+            #"provenance": "Testing"
+        }
+
+        logging.info("Collection: %s", collection)
+
+        collection_url = '/communities/' + self.uuid + '/collections'
+        logging.info(collection_url)
+
+        # Create item
+        try:
+            response = dspace_rest_client._request_post(collection_url, json.dumps(collection))
+        except RequestException:
+            logging.info('Could not create DSpace collection: {}'.format(collection_url))
+
+        logging.info(response.text)
+        # logging.info(response.json())
+        return response.json()
+
+    def create_community(self, name):
+        # POST/communities/{communityId}/communities - Create new subcommunity in community. You must post Community.
+        community = {  # Structure necessary to create DSpace community
+            "name": name,
+            # "provenance": "Testing"
+        }
+
+        logging.info("Community: %s", community)
+
+        community_url = '/communities/' + self.uuid + '/communities'
+        logging.info(community_url)
+
+        # Create item
+        try:
+            response = dspace_rest_client._request_post(community_url, json.dumps(community))
+        except RequestException:
+            logging.info('Could not create DSpace collection: {}'.format(community_url))
+
+        logging.info(response.text)
+        # logging.info(response.json())
+        return response.json()
 
 
 class Item(AbstractDSpaceObject):
     """
-    A DSpace Item
-    GET /items - Return list of items.
-    GET /items/{item id} - Return item.
-    GET /items/{item id}/metadata - Return item metadata.
-    GET /items/{item id}/bitstreams - Return item bitstreams.
-    POST /items/find-by-metadata-field - Find items by metadata entry. You must post a MetadataEntry.
-    POST /items/{item id}/metadata - Add metadata to item. You must post an array of MetadataEntry.
-    POST /items/{item id}/bitstreams - Add bitstream to item. You must post a Bitstream.
-    PUT /items/{item id}/metadata - Update metadata in item. You must put a MetadataEntry.
-    DELETE /items/{item id} - Delete item.
-    DELETE /items/{item id}/metadata - Clear item metadata.
-    DELETE /items/{item id}/bitstreams/{bitstream id} - Delete item bitstream.
+    DSpace item object type
 
-    {"id":14301,
-    "name":"2015 Annual Report",
-    "handle":"123456789/13470",
-    "type":"item",
-    "link":"/rest/items/14301",
-    "expand":["metadata","parentCollection","parentCollectionList","parentCommunityList","bitstreams","all"],
-    "lastModified":"2015-01-12 15:44:12.978",
-    "parentCollection":null,
-    "parentCollectionList":null,
-    "parentCommunityList":null,
-    "bitstreams":null,
-    "archived":"true",
-    "withdrawn":"false"}
+    Collection is a mandatory argument, you cannot have an item without an owning collection.
 
     """
     def __str__(self):
         return str(['{}: {}'.format(attr, value) for attr, value in self.__dict__.items()])
 
-    def __init__(self, ds_client, item_json, collection=None):
+    def __init__(self, item_json, collection=None):
         super(Item, self).__init__()
-        self.ds_client = ds_client
 
-        for k, v in item_json.items():
-            self.__setattr__(k, v)
+        # if collection is explicitly passed then we are creating an item
+        if collection is not None:
+            if type(item_json) is not list:
+                raise CreateItemException("Passed argument is not a list.")
 
-        self.lastModified = time.strptime(self.lastModified, "%Y-%m-%d %H:%M:%S.%f")
-        self.archived = bool(item_json['archived'])
-        self.withdrawn = bool(item_json['withdrawn'])
-        self.metadata = self.get_metadata() if self.ds_client.load_item_metadata else None
+            self.create(collection, item_json)
+        else:
+            for k, v in item_json.items():
+                self.__setattr__(k, v)
 
-    def create(self, metadata, ds_collection):
+            self.lastModified = time.strptime(self.lastModified, "%Y-%m-%d %H:%M:%S.%f")
+            self.archived = bool(item_json['archived'])
+            self.withdrawn = bool(item_json['withdrawn'])
+            self.metadata = self.get_metadata() if dspace_rest_client.load_item_metadata else None
+
+    def create(self, collection, metadata):
         """
         Create a item
         :param metadata:
-        :param ds_collection:
+        :param collection:
         :return:
         """
         item = {  # Structure necessary to create DSpace item
@@ -266,21 +246,18 @@ class Item(AbstractDSpaceObject):
 
         logging.info("Item: %s", item)
 
-        collection_url = self.base_url + '/collections/' + ds_collection + '/items'
+        collection_url = '/collections/' + collection + '/items'
         logging.info(collection_url)
 
         # Create item
         try:
-            response = requests.post(collection_url,
-                                     headers=self.headers,
-                                     cookies={'JSESSIONID': self.session},
-                                     data=json.dumps(item),
-                                     verify=self.verify_ssl)
+            response = dspace_rest_client._request_post(collection_url, item)
         except RequestException:
-            logging.info('Could not create DSpace item: {}'.format(collection_url))
+            logging.info('Could not create DSpace item: {}\n{}'.format(collection_url, response.text))
 
         logging.info(response)
-        logging.info(response.json())
+        logging.info(response.text)
+        # logging.info(response.json())
 
         return response.json()
 
@@ -294,10 +271,7 @@ class Item(AbstractDSpaceObject):
         item_id = self.get_id_by_handle(handle)
 
         try:
-            response = requests.delete(self.base_url + '/items/' + item_id,
-                                       headers=self.headers,
-                                       cookies={'JSESSIONID': self.session},
-                                       verify=self.verify_ssl)
+            response = dspace_rest_client._request_delete('/items/' + item_id)
         except RequestException:
             logging.info('Could not delete item: {}'.format(item_id))
 
@@ -310,10 +284,7 @@ class Item(AbstractDSpaceObject):
         # Get item id
         response = None
         try:
-            response = requests.get(self.ds_client.base_url + '/handle/' + self.handle,
-                                    headers=self.ds_client.headers,
-                                    cookies={'JSESSIONID': self.ds_client.session},
-                                    verify=self.ds_client.verify_ssl)
+            response = dspace_rest_client._request_get('/handle/' + self.handle)
         except RequestException:
             msg = 'Could not get id for: {}'.format(self.handle)
             logging.info(msg)
@@ -325,20 +296,17 @@ class Item(AbstractDSpaceObject):
 
     def get_metadata(self):
         try:
-            response = self.ds_client.request_get('/items/{}/metadata'.format(self.uuid))
+            response = dspace_rest_client._request_get('/items/{}/metadata'.format(self.uuid))
         except RequestException:
             logging.error('Could not get metadata for DSpace item: {}'.format(self.handle))
 
         return [Metadata(m['key'], m['value'], m['language']) for m in response.json()]
 
     def update_item(self, metadata):
-        item_id = self.get_id_by_handle(self.handle)
+        item_id = self.get_id_by_handle()
         try:
-            response = requests.put('{}/items/{}/metadata'.format(self.ds_client.base_url, item_id),
-                                    headers=self.ds_client.headers,
-                                    cookies={'JSESSIONID': self.ds_client.session},
-                                    data=json.dumps(metadata),
-                                    verify=self.ds_client.verify_ssl)
+            response = dspace_rest_client._request_put('/items/{}/metadata'.format(item_id),
+                                                   json.dumps(metadata))
 
             if response.status_code != 200:
                 raise UpdateItemException()
@@ -352,10 +320,7 @@ class Item(AbstractDSpaceObject):
 
     def get_bitstreams(self):
         try:
-            response = requests.get('{}/items/{}/bitstreams'.format(self.ds_client.base_url, self.uuid),
-                                    headers=self.ds_client.headers,
-                                    cookies={'JSESSIONID': self.ds_client.session},
-                                    verify=self.ds_client.verify_ssl)
+            response = dspace_rest_client._get('/items/{}/bitstreams'.format(self.uuid), Bitstream)
         except RequestException:
             logging.info('Could not get items')
 
@@ -371,11 +336,7 @@ class Item(AbstractDSpaceObject):
         metadata = [m.__dict__ for m in metadata]
 
         try:
-            response = requests.post(self.ds_client.base_url + '/items/' + self.uuid + '/metadata',
-                                     headers=self.ds_client.headers,
-                                     cookies={'JSESSIONID': self.ds_client.session},
-                                     data=json.dumps(metadata),
-                                     verify=self.ds_client.verify_ssl)
+            response = dspace_rest_client._request_post('/items/' + self.uuid + '/metadata', json.dumps(metadata))
         except RequestException:
             logging.info('Could not add metadata to item: {}'.format(self.handle))
 
@@ -388,7 +349,7 @@ class Item(AbstractDSpaceObject):
 
 
 class DSpaceRestClient:
-    def __init__(self, user, password, rest_url, verify_ssl, load_item_metadata=False):
+    def __init__(self, user, password, rest_url, verify_ssl=True, load_item_metadata=False, limit=100, offset=0):
         # Parameters for establishing connection
         self.user = user
         self.password = password
@@ -399,18 +360,23 @@ class DSpaceRestClient:
             'Accept': 'application/json',
             "Content-Type": 'application/json',
         }
+        self.limit = limit
+        self.offset = offset
 
         self._parse_and_clean_urls()
         self.base_url = self.rest_url.scheme + '://' + self.rest_url.netloc + self.rest_url.path
 
         # Parameters for efficiency, i.e. don't get again what you should already have
-        self.communities = None
-        self.collections = None
-        self.items = None
         self.load_item_metadata = bool(load_item_metadata)
-        self.bitstreams = None
+        '''self.communities = None
+        self.collections = None
+        self.items = None        
+        self.bitstreams = None'''
 
         self._login()
+
+        global dspace_rest_client
+        dspace_rest_client = self
 
     def _login(self):
         """
@@ -420,9 +386,12 @@ class DSpaceRestClient:
         body = {'email': self.user, 'password': self.password}
 
         try:
+            logging.info(self.base_url + '/login')
+            # Can't use refactored request post when logging in
             response = requests.post(self.base_url + '/login',
                                      data=body,
                                      verify=self.verify_ssl)
+            logging.info(response.content)
 
             if response.status_code != 200:
                 raise LoginException()
@@ -435,21 +404,18 @@ class DSpaceRestClient:
             logging.error('FATAL Error {} logging in to DSpace REST API, aborting\n{}'.format(response.status_code, e))
             sys.exit(1)
 
+        # Unravel cookie header from DSpace and store it
         set_cookie = response.headers['Set-Cookie'].split(';')[0]
-
         self.session = set_cookie[set_cookie.find('=') + 1:]
 
     def logout(self):
         """
         Logout from DSpace API
-        :return:
+        Explicit function unlike login which is called on initialisation
         """
 
         try:
-            response = requests.post(self.base_url + '/logout',
-                                     headers=self.headers,
-                                     cookies={'JSESSIONID': self.session},
-                                     verify=self.verify_ssl)
+            response = self._request_post('/logout')
 
             if response.status_code != 200:
                 raise LogoutException()
@@ -461,6 +427,11 @@ class DSpaceRestClient:
             logging.error('Error logging out of DSpace REST API.\n{}'.format(e))
 
     def _parse_and_clean_urls(self):
+        """
+        Utility method to clean up URLs.
+        Make sure they're kosher
+        :return:
+        """
         self.rest_url = urlparse.urlparse(self.rest_url)
 
         if self.rest_url.scheme != 'https':
@@ -471,37 +442,107 @@ class DSpaceRestClient:
 
         logging.info('DS REST Cleaned: {}'.format(self.rest_url))
 
-    def request_get(self, url):
+    def _request_get(self, url):
+        """
+        Refactored method to use request's get
+        :param url:
+        :return:
+        """
         return requests.get(self.base_url + url,
                             headers=self.headers,
                             cookies={'JSESSIONID': self.session},
                             verify=self.verify_ssl)
 
-    def _get(self, rest_url, ds_obj, offset, limit, results=[]):
+    def _request_post(self, url, json_obj=None):
         """
-        Get *
+        Refactored method to use requests's post
+        :param url:
+        :param json_obj:
+        :return:
+        """
+        logging.info(self.base_url + url)
+        logging.info(json.dumps(json_obj))
+        return requests.post(self.base_url + url,
+                             headers=self.headers,
+                             cookies={'JSESSIONID': self.session},
+                             data=json.dumps(json_obj),
+                             verify=self.verify_ssl)
+
+    def _request_delete(self, url):
+        """
+        Refactored method to use requests's delete
+        :param url:
+        :return:
+        """
+        return requests.delete(self.base_url + url,
+                               headers=self.headers,
+                               cookies={'JSESSIONID': self.session},
+                               verify=self.verify_ssl)
+
+    def _request_put(self, url):
+        """
+        Refactored method to use requests's delete
+        :param url:
+        :return:
+        """
+        return requests.put(self.base_url + url,
+                               headers=self.headers,
+                               cookies={'JSESSIONID': self.session},
+                               verify=self.verify_ssl)
+
+    def _get(self, url, object_type, offset=None, limit=None, results=[]):
+        """
+        Get supplied DSpace item type
         :param offset:
         :param results:
         :param limit:
         :return:
         """
+        if offset is None:
+            offset = self.offset
+        if limit is None:
+            limit = self.limit
+
         response = None
+
         try:
-            response = self.request_get('/{}?offset={}&limit={}'.format(rest_url, offset, limit))
+            response = self._request_get('/{}?offset={}&limit={}'.format(url, offset, limit))
         except RequestException:
-            logging.error('Could not get {}'.format(rest_url))
+            logging.error('Could not get {}'.format(url))
+
+        # logging.info()
+        logging.info(response.content)
 
         if response.status_code == 200:
-            results = results + [ds_obj(self, obj) for obj in response.json()]
+            results = results + [object_type(obj) for obj in response.json()]
 
             if offset < limit and len(response.json()) == limit:
-                return self._get(rest_url, ds_obj, offset + limit, limit, results)
+                return self._get(url, object_type, offset + limit, limit, results)
             else:
                 return results
         else:
-            return 'Could not get {}. \n{}'.format(rest_url, response.content)
+            return 'Could not get {}. \n{}'.format(url, response.content)
 
-    def get_items(self, offset=0, limit=100):
+    def get_items(self, offset=None, limit=None):
+        """
+        Get all items in repository
+        :param offset:
+        :param results:
+        :param limit:
+        :return:
+        """
+        # items = self._get('items', Item, offset, limit)
+        # if not self.items:  # Store items a prop of client for future ref.
+        #    self.items = items
+
+        if offset is None:
+            offset = self.offset
+        if limit is None:
+            limit = self.limit
+
+        return self._get('items', Item, offset, limit)
+
+    def get_top_communities(self, offset=None, limit=None):
         """
         Get items
         :param offset:
@@ -509,22 +550,14 @@ class DSpaceRestClient:
         :param limit:
         :return:
         """
-        items = self._get('items', Item, offset, limit)
-        if not self.items:  # Store items a prop of client for future ref.
-            self.items = items
-        return items
+        if offset is None:
+            offset = self.offset
+        if limit is None:
+            limit = self.limit
 
-    def get_top_communities(self, offset=0, limit=100):
-        """
-        Get items
-        :param offset:
-        :param results:
-        :param limit:
-        :return:
-        """
         return self._get('communities/top-communities', Community, offset, limit)
 
-    def get_communities(self, offset=0, limit=100):
+    def get_communities(self, offset=None, limit=None):
         """
         Get communities
         :param offset:
@@ -532,22 +565,28 @@ class DSpaceRestClient:
         :param limit:
         :return:
         """
-        communities = self._get('communities', Community, offset, limit)
-        if not self.communities:  # Store communities a prop of client for future ref.
-            self.communities = communities
-        return self.communities
+        #self.communities = self._get('communities', Community, offset, limit)
+        #if not self.communities:  # Store communities a prop of client for future ref.
+        #    self.communities = communities
+
+        if offset is None:
+            offset = self.offset
+        if limit is None:
+            limit = self.limit
+
+        return self._get('communities', Community, offset, limit)
 
     def find_item_by(self, search_variable, search_string):
-        if not self.items:
-            self.get_items()
+        #if not self.items:
+        #    self.get_items()
 
-        return [c for c in self.items if search_string in getattr(c, search_variable)]
+        return [c for c in self.get_items() if search_string in getattr(c, search_variable)]
 
     def find_community_by(self, search_variable, search_string):
-        if not self.communities:
-            self.get_communities()
+        # if not self.communities:
+        #    self.get_communities()
 
-        return [c for c in self.communities if search_string in getattr(c, search_variable)]
+        return [c for c in self.get_communities() if search_string in getattr(c, search_variable)]
 
     def delete_bitstream(self, file_name, items=None):
         if items is None:
